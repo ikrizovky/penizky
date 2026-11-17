@@ -1,5 +1,5 @@
-// Penízky service worker, verze 92cad393cc. Vygenerováno skriptem build-web.py, neupravovat ručně.
-const CACHE = 'penizky-92cad393cc';
+// Penízky service worker, verze 842da353b1. Vygenerováno skriptem build-web.py, neupravovat ručně.
+const CACHE = 'penizky-842da353b1';
 const FONTS = 'penizky-fonts';
 const SHELL = ["./", "index.html", "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png", "maskable-512.png", "apple-touch-icon.png", "favicon-32.png", "xlsx.full.min.js"];
 

@@ -354,6 +354,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-variant-numeric: tabula
 <div class="wrap" id="bannerWrap"></div>
 <main class="wrap" id="view"><div class="loading">Načítám tvoje finance…</div></main>
 <div id="sheetRoot"></div>
+<div id="ckAuth" hidden><div id="ckSignIn"></div><div id="ckSignOut"></div></div>
 <div class="tip" id="tip" hidden></div>
 <div class="toast" id="toast" hidden></div>
 <input type="file" id="importFile" accept="application/json,.json" hidden>
@@ -539,6 +540,7 @@ const plain = o => JSON.parse(JSON.stringify(o));
 function saveLocal() {
   try { localStorage.setItem('penizky:v1', JSON.stringify({ settings: S.settings, txs: S.txs })); }
   catch (e) { toast('Prohlížeč nedovolil data uložit.'); }
+  if (standalone) ckSoon();
 }
 function persistSettings() {
   debtCache = null;
@@ -740,8 +742,12 @@ function renderBanner() {
       <form data-form="start"><label class="sr" for="startIncome" hidden>Čistý měsíční příjem</label>
         <input id="startIncome" class="num" inputmode="decimal" placeholder="Čistý příjem / měsíc" aria-label="Čistý měsíční příjem">
         <button class="btn" type="submit">Začít s vlastními daty</button><button class="btn" type="button" data-act="bank-import">Importovat výpis z banky</button></form></div>`;
+  } else if (S.mode === 'local' && standalone && ckOn()) {
+    html = '';
+  } else if (S.mode === 'local' && standalone && CK.st === 'signedout' && ckState()) {
+    html = `<p class="note">Synchronizace přes iCloud stojí, protože vypršelo přihlášení. <a href="#nastaveni">Přihlas se znovu v Nastavení.</a></p>`;
   } else if (S.mode === 'local') {
-    html = `<p class="note">Data se ukládají jen v tomto prohlížeči. Zálohu si stáhneš v Nastavení.</p>`;
+    html = `<p class="note">Data se ukládají jen v tomto prohlížeči. ${standalone ? 'V Nastavení si můžeš zapnout synchronizaci přes iCloud nebo stáhnout zálohu.' : 'Zálohu si stáhneš v Nastavení.'}</p>`;
   }
   if (S.stale) html += `<p class="note">Data se zatím nepodařilo načíst ze serveru. Co vidíš, nemusí být aktuální.</p>`;
   if (b.dataset.html !== html) { b.innerHTML = html; b.dataset.html = html; }
@@ -865,7 +871,7 @@ function adviceHtml(p, s, em) {
     if (days < 0) it('crit', '!', `${esc(d.name)}: dluh ${money(d.remaining)} je po splatnosti (${dm(pd(d.due))}).`);
     else if (days <= 14) it('warn', '!', `${esc(d.name)}: do ${dm(pd(d.due))} je potřeba vrátit ${money(d.remaining)}.`);
   });
-  if (S.mode === 'local' && S.txs.length >= 20) {
+  if (S.mode === 'local' && S.txs.length >= 20 && !(standalone && ckOn())) {
     const lb = S.settings.lastBackup, age = lb ? Math.round((pd(today()) - pd(lb)) / 864e5) : null;
     if (age == null || age > 30) it('info', '↓', `Data máš jen v tomto zařízení. ${lb ? `Poslední záloha je ${age} dní stará.` : 'Zatím nemáš žádnou zálohu.'} <a href="#nastaveni">Stáhni si zálohu</a>, ať o ně nepřijdeš.`);
   }
@@ -1091,12 +1097,13 @@ function viewSettings() {
         <div><div class="lab" style="margin-bottom:6px">Příjmy</div>${catList('income', st.incomeCats)}</div>
         <div><div class="lab" style="margin-bottom:6px">Investice</div>${catList('invest', st.investCats)}</div>
       </div></section>
+    ${ckCardHtml()}
     ${standalone ? `<section class="card span-12"><div class="card-head"><h2>Aplikace</h2><span class="sub">${isInstalled() ? 'běží jako nainstalovaná aplikace' : 'Penízky jdou nainstalovat do počítače i mobilu'}</span></div>
-      ${isInstalled() ? '<p class="help" style="margin:0">Aplikace funguje i bez internetu. Data máš jen v tomto zařízení, tak si občas stáhni zálohu.</p>'
+      ${isInstalled() ? `<p class="help" style="margin:0">Aplikace funguje i bez internetu. ${ckOn() ? 'Změny se do iCloudu pošlou, až budeš zase online.' : 'Data máš jen v tomto zařízení, tak si občas stáhni zálohu nebo zapni synchronizaci přes iCloud.'}</p>`
         : installEvt ? '<button class="btn primary" data-act="install">Nainstalovat jako aplikaci</button><p class="help" style="margin:8px 0 0">Penízky se pak otevřou ve vlastním okně a fungují i bez internetu.</p>'
         : '<p class="help" style="margin:0">V Chromu nebo Edgi klikni na ikonu instalace vpravo v adresním řádku. Na iPhonu a iPadu otevři stránku v Safari, klepni na Sdílet a vyber Přidat na plochu. Na Androidu v Chromu otevři nabídku ⋮ a zvol Nainstalovat aplikaci.</p>'}
     </section>` : ''}
-    <section class="card span-12"><div class="card-head"><h2>Data</h2><span class="sub">${S.mode === 'db' ? 'Uloženo k tvému účtu, vidíš je jen ty.' : S.mode === 'local' ? `Uloženo v tomto prohlížeči${S.settings.lastBackup ? `, poslední záloha ${dm(pd(S.settings.lastBackup))} ${pd(S.settings.lastBackup).getFullYear()}` : ', zatím bez zálohy'}.` : 'Ukázka, nic se neukládá.'}</span></div>
+    <section class="card span-12"><div class="card-head"><h2>Data</h2><span class="sub">${S.mode === 'db' ? 'Uloženo k tvému účtu, vidíš je jen ty.' : S.mode === 'local' ? `Uloženo v tomto ${ckOn() ? 'zařízení a ve tvém iCloudu' : 'prohlížeči'}${S.settings.lastBackup ? `, poslední záloha ${dm(pd(S.settings.lastBackup))} ${pd(S.settings.lastBackup).getFullYear()}` : ', zatím bez zálohy'}.` : 'Ukázka, nic se neukládá.'}</span></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn" data-act="bank-import">Importovat výpis z banky (CSV, Excel)</button>
         ${downloads || standalone ? `<button class="btn" data-act="export-json">Stáhnout zálohu (JSON)</button><button class="btn" data-act="export-csv">Stáhnout transakce (CSV)</button>` : '<span class="help">Stahování souborů v tomto zobrazení není k dispozici.</span>'}
@@ -1401,7 +1408,7 @@ function applyImport(data) {
 function wipeAll() {
   const old = S.txs;
   if (S.mode === 'db') { old.forEach(t => removeTxRemote(t.id)); enqueue(() => refs.root.delete()); }
-  if (S.mode === 'local') { try { localStorage.removeItem('penizky:v1'); } catch (e) {} }
+  if (S.mode === 'local') { try { localStorage.removeItem('penizky:v1'); } catch (e) {} if (standalone) ckWipeRemote(); }
   enterDemo(); render(); toast('Všechna data jsou smazaná');
 }
 
@@ -2427,6 +2434,359 @@ document.addEventListener('change', e => {
   const id = e.target && e.target.id;
   if (id && /^imp(Inc|Type|Map-|Flip)/.test(id)) setTimeout(() => { const n = document.getElementById(id); if (n) n.focus(); }, 0);
 });
+
+/* ---------- iCloud sync (web edition only) ----------
+   Each person's data goes to the private database of their own iCloud, in one record zone:
+   one "Tx" record per transaction and one "Settings" record. Every record holds the item as JSON.
+   The sync state remembers a hash of each item as last seen in iCloud, so local edits, deletions and
+   imports from any code path are found by comparing, and remote changes arrive through a zone change token. */
+const ICLOUD = {
+  container: 'iCloud.cz.ikrizovky.penizky',
+  apiToken: '8f5c5747d724188111c43818eee0930263074f7f7b8656073fc0228ed98c57c9',
+  env: 'development',
+  lib: 'https://cdn.apple-cloudkit.com/ck/2/cloudkit.js',
+};
+const CK_ZONE = { zoneName: 'Penizky' };
+const CK_KEY = 'penizky:sync';
+const CK = { st: 'off', container: null, db: null, user: null, busy: false, again: false, err: '', applying: false, pending: null, soonT: null, loading: null };
+const ckHash = o => { const s = JSON.stringify(o); let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36) + s.length.toString(36); };
+function ckState() {
+  let st = null;
+  try { st = JSON.parse(localStorage.getItem(CK_KEY) || 'null'); } catch (e) { st = null; }
+  return st && typeof st === 'object' ? st : null;
+}
+function ckSaveState(st) { try { if (st) localStorage.setItem(CK_KEY, JSON.stringify(st)); else localStorage.removeItem(CK_KEY); } catch (e) {} }
+const ckOn = () => CK.st === 'signedin';
+function ckRefresh() { if (S.view === 'nastaveni') scheduleRender(); else renderBanner(); }
+
+function ckLoad() {
+  if (!standalone) return Promise.resolve(false);
+  if (CK.container) return Promise.resolve(true);
+  if (CK.loading) return CK.loading;
+  CK.st = 'loading'; ckRefresh();
+  CK.loading = new Promise(resolve => {
+    const done = ok => { CK.loading = null; resolve(ok); };
+    const start = () => {
+      try {
+        CloudKit.configure({ containers: [{
+          containerIdentifier: ICLOUD.container, environment: ICLOUD.env,
+          apiTokenAuth: { apiToken: ICLOUD.apiToken, persist: true, signInButton: { id: 'ckSignIn' }, signOutButton: { id: 'ckSignOut' } },
+        }] });
+        CK.container = CloudKit.getDefaultContainer();
+        CK.db = CK.container.privateCloudDatabase;
+        done(true); ckAuth();
+      } catch (e) { console.error(e); CK.st = 'unavailable'; CK.err = 'iCloud se nepodařilo nastavit.'; ckRefresh(); done(false); }
+    };
+    if (window.CloudKit) return start();
+    const s = document.createElement('script');
+    s.src = ICLOUD.lib; s.async = true;
+    s.onload = start;
+    s.onerror = () => { s.remove(); CK.st = 'unavailable'; CK.err = navigator.onLine ? 'Knihovnu iCloudu se nepodařilo načíst.' : 'Jsi offline.'; ckRefresh(); done(false); };
+    document.head.appendChild(s);
+  });
+  return CK.loading;
+}
+function ckAuth() {
+  CK.container.setUpAuth().then(identity => {
+    if (identity) return ckSignedIn(identity);
+    CK.st = 'signedout'; CK.user = null; ckRefresh();
+    CK.container.whenUserSignsIn().then(ckSignedIn).catch(err => { console.error(err); CK.err = 'Přihlášení se nepovedlo. Zkus to prosím znovu.'; ckRefresh(); });
+  }).catch(err => { console.error(err); CK.st = 'unavailable'; CK.err = ckErrText(err); ckRefresh(); });
+}
+function ckSignedIn(identity) {
+  if (CK.st === 'signedin' && CK.user === identity.userRecordName) return;
+  const wasOn = CK.st === 'signedin';
+  CK.user = identity.userRecordName; CK.st = 'signedin'; CK.err = '';
+  let st = ckState();
+  if (!st || st.user !== CK.user || st.env !== ICLOUD.env) st = { user: CK.user, env: ICLOUD.env, token: null, shadow: {}, sh: null, at: null };
+  ckSaveState(st);
+  ckRefresh();
+  if (!wasOn && S.view === 'prehled') scheduleRender();
+  ckSync();
+}
+// The visible button is ours; CloudKit's own button waits in a hidden host and opens Apple's sign-in window when clicked.
+function ckSignIn() {
+  const b = document.querySelector('#ckSignIn > .apple-auth-button');
+  if (b && typeof b.onclick === 'function') { b.click(); return; }
+  if (CK.container) { ckAuth(); toast('Přihlášení se připravuje, klikni prosím ještě jednou.'); }
+  else ckLoad();
+}
+function ckSignOut() {
+  if (CK.container) { try { CK.container.signOut(); } catch (e) {} }
+  ckSaveState(null);
+  CK.st = 'signedout'; CK.user = null; CK.pending = null; CK.err = '';
+  if (CK.container) ckAuth();
+  ckRefresh(); toast('Odhlášeno z iCloudu. Data v tomto zařízení zůstala.');
+}
+function ckErrText(err) {
+  const c = err && (err.ckErrorCode || err.serverErrorCode);
+  if (!navigator.onLine) return 'Jsi offline, synchronizace počká na připojení.';
+  if (c === 'AUTHENTICATION_REQUIRED' || c === 'AUTHENTICATION_FAILED') return 'Přihlášení k iCloudu vypršelo. Přihlas se prosím znovu.';
+  if (c === 'QUOTA_EXCEEDED') return 'Tvůj iCloud je plný, data se nedají nahrát.';
+  if (c === 'THROTTLED' || c === 'TRY_AGAIN_LATER') return 'iCloud je teď přetížený, zkusím to za chvíli znovu.';
+  return 'Synchronizace se nepovedla' + (c ? ` (${c})` : '') + '. Zkusím to znovu za chvíli.';
+}
+function ckSoon(ms = 1500) {
+  if (!ckOn() || CK.applying) return;
+  clearTimeout(CK.soonT); CK.soonT = setTimeout(ckSync, ms);
+}
+async function ckFetchChanges(token) {
+  let created = false;
+  const out = { recs: [], token, full: !token };
+  for (let guard = 0; guard < 500; guard++) {
+    let res, err = null;
+    try {
+      res = await CK.db.fetchRecordZoneChanges({ zoneID: CK_ZONE, syncToken: out.token || undefined });
+      if (res.hasErrors) err = res.errors[0];
+    } catch (e) { err = e; }
+    if (err) {
+      const c = err.ckErrorCode || err.serverErrorCode;
+      if (c === 'ZONE_NOT_FOUND' && !created) {
+        const z = await CK.db.saveRecordZones(CK_ZONE);
+        if (z.hasErrors) throw z.errors[0];
+        created = true; out.recs = []; out.token = null; out.full = true; continue;
+      }
+      if ((c === 'CHANGE_TOKEN_EXPIRED' || c === 'BAD_REQUEST') && out.token) { out.recs = []; out.token = null; out.full = true; continue; }
+      throw err;
+    }
+    const z = res.zones[0] || {};
+    out.recs.push(...(z.records || []));
+    out.token = z.syncToken || out.token;
+    if (!z.moreComing) return out;
+  }
+  return out;
+}
+function ckParse(recs) {
+  const txs = new Map(), del = new Set();
+  let settings, settingsDeleted = false;
+  recs.forEach(r => {
+    const isSettings = r.recordName === 'settings';
+    if (r.deleted) { if (isSettings) { settings = undefined; settingsDeleted = true; } else { txs.delete(r.recordName); del.add(r.recordName); } return; }
+    let v = null;
+    try { v = JSON.parse(r.fields && r.fields.data && r.fields.data.value); } catch (e) { v = null; }
+    if (!v || typeof v !== 'object') return;
+    if (isSettings) { settings = v; settingsDeleted = false; }
+    else if (v.date && TYPES[v.type]) { v.id = r.recordName; txs.set(r.recordName, v); del.delete(r.recordName); }
+  });
+  return { txs, del, settings, settingsDeleted };
+}
+async function ckSync() {
+  if (!ckOn() || !CK.db || CK.pending) return;
+  if (CK.busy) { CK.again = true; return; }
+  if (S.mode !== 'local' && S.mode !== 'demo') return;
+  CK.busy = true; clearTimeout(CK.soonT);
+  let st = ckState();
+  if (!st || st.user !== CK.user) { CK.busy = false; return; }
+  try {
+    if (st.wipe) await ckDeleteRemote(st);
+    // In the demo nothing local is kept, so fetch everything and take it over if iCloud already has data.
+    const ch = await ckFetchChanges(S.mode === 'demo' ? null : st.token);
+    const remote = ckParse(ch.recs);
+    if (ch.full) Object.keys(st.shadow).forEach(id => { if (!remote.txs.has(id)) remote.del.add(id); });
+    const hasRemote = remote.txs.size > 0 || !!(remote.settings && remote.settings.onboarded);
+    const firstLink = !st.token && !Object.keys(st.shadow).length && st.sh == null;
+    if (S.mode === 'demo' || (firstLink && !S.txs.length)) {
+      if (hasRemote) { ckAdopt(st, remote, false); toast('Data z iCloudu jsou načtená.'); }
+      st.token = ch.token;
+    } else if (firstLink && hasRemote) {
+      // Both this device and iCloud hold data: the person decides before anything is merged or replaced.
+      CK.pending = { remote, token: ch.token };
+      st.token = null; ckSaveState(st);
+      CK.busy = false; ckRefresh(); ckOpenFirst();
+      return;
+    } else {
+      ckApply(st, remote);
+      st.token = ch.token;
+    }
+    ckSaveState(st);
+    if (S.mode === 'local') await ckPush(st);
+    st.at = new Date().toISOString(); CK.err = '';
+    ckSaveState(st);
+  } catch (err) {
+    console.error(err);
+    CK.err = ckErrText(err);
+    const c = err && (err.ckErrorCode || err.serverErrorCode);
+    if (c === 'AUTHENTICATION_REQUIRED' || c === 'AUTHENTICATION_FAILED') { CK.st = 'signedout'; CK.user = null; if (CK.container) ckAuth(); }
+  } finally {
+    CK.busy = false;
+    ckRefresh();
+    if (CK.again) { CK.again = false; ckSoon(300); }
+  }
+}
+function ckWithoutPush(fn) { CK.applying = true; try { fn(); } finally { CK.applying = false; } }
+function ckAdopt(st, remote, keepLocal) {
+  const rem = [...remote.txs.values()];
+  const txs = rem.slice();
+  if (keepLocal) {
+    const ids = new Set(rem.map(t => t.id)), keys = new Set(rem.map(t => t.importKey).filter(Boolean));
+    S.txs.forEach(t => { if (!ids.has(t.id) && !(t.importKey && keys.has(t.importKey))) txs.push(t); });
+  }
+  if (remote.settings) S.settings = mergeSettings({ ...remote.settings, onboarded: true });
+  else if (S.mode === 'demo') { S.settings = DEFAULTS(); S.settings.onboarded = true; }
+  migrateCats(S.settings);
+  S.txs = txs; S.mode = 'local'; S.target = 'local';
+  st.shadow = {}; rem.forEach(t => { st.shadow[t.id] = ckHash(t); });
+  st.sh = remote.settings ? ckHash(S.settings) : null;
+  debtCache = null;
+  ckWithoutPush(saveLocal);
+  scheduleRender();
+}
+function ckApply(st, remote) {
+  let changed = false;
+  const idx = new Map(S.txs.map((t, i) => [t.id, i]));
+  remote.txs.forEach((t, id) => {
+    const i = idx.get(id), h = ckHash(t);
+    if (i != null) {
+      const lh = ckHash(S.txs[i]);
+      if (lh === h) { st.shadow[id] = h; return; }
+      if (st.shadow[id] == null || lh !== st.shadow[id]) return; // edited here since the last sync: this device's version wins and goes up next
+      S.txs[i] = t;
+    } else { S.txs.push(t); idx.set(id, S.txs.length - 1); }
+    st.shadow[id] = h; changed = true;
+  });
+  if (remote.del.size) {
+    const keep = [];
+    S.txs.forEach(t => {
+      if (remote.del.has(t.id) && st.shadow[t.id] != null && ckHash(t) === st.shadow[t.id]) { changed = true; return; }
+      keep.push(t);
+    });
+    S.txs = keep;
+    remote.del.forEach(id => { delete st.shadow[id]; });
+  }
+  const localSettingsEdited = st.sh != null && ckHash(S.settings) !== st.sh;
+  if (remote.settings && !localSettingsEdited) {
+    const next = mergeSettings({ ...remote.settings, onboarded: remote.settings.onboarded !== false });
+    if (ckHash(next) !== ckHash(S.settings)) { S.settings = next; changed = true; }
+    st.sh = ckHash(S.settings);
+  } else if (remote.settingsDeleted && !localSettingsEdited) {
+    // Everything was wiped on another device.
+    st.sh = null;
+    if (!S.txs.length) { st.shadow = {}; ckWithoutPush(() => { try { localStorage.removeItem('penizky:v1'); } catch (e) {} }); enterDemo(); scheduleRender(); return; }
+  }
+  if (changed) { debtCache = null; ckWithoutPush(saveLocal); scheduleRender(); }
+}
+async function ckPush(st) {
+  const saves = [], dels = [];
+  const hashes = {};
+  S.txs.forEach(t => { const h = ckHash(t); if (st.shadow[t.id] !== h) { hashes[t.id] = h; saves.push({ recordName: t.id, recordType: 'Tx', fields: { data: { value: JSON.stringify(t) } } }); } });
+  const live = new Set(S.txs.map(t => t.id));
+  Object.keys(st.shadow).forEach(id => { if (!live.has(id)) dels.push(id); });
+  const sh = ckHash(S.settings);
+  if (st.sh !== sh && S.settings.onboarded) { hashes.settings = sh; saves.push({ recordName: 'settings', recordType: 'Settings', fields: { data: { value: JSON.stringify(S.settings) } } }); }
+  if (!saves.length && !dels.length) return;
+  const ops = [...saves.map(r => ['save', r]), ...dels.map(n => ['del', n])];
+  let failed = null;
+  for (let i = 0; i < ops.length; i += 200) {
+    const chunk = ops.slice(i, i + 200);
+    const batch = CK.db.newRecordsBatch({ zoneID: CK_ZONE, atomic: false });
+    const sv = chunk.filter(o => o[0] === 'save').map(o => o[1]);
+    const dl = chunk.filter(o => o[0] === 'del').map(o => ({ recordName: o[1] }));
+    if (sv.length) batch.forceReplace(sv);
+    if (dl.length) batch.forceDelete(dl);
+    const res = await batch.commit();
+    (res.records || []).forEach(r => {
+      if (r.deleted) { delete st.shadow[r.recordName]; return; }
+      if (r.recordName === 'settings') st.sh = hashes.settings; else if (hashes[r.recordName]) st.shadow[r.recordName] = hashes[r.recordName];
+    });
+    (res.errors || []).forEach(e => {
+      const c = e.ckErrorCode || e.serverErrorCode;
+      if (c === 'NOT_FOUND' && e.recordName && !hashes[e.recordName]) delete st.shadow[e.recordName];
+      else failed = failed || e;
+    });
+    ckSaveState(st);
+  }
+  if (failed) throw failed;
+}
+function ckOpenFirst() {
+  const p = CK.pending;
+  if (!p) return;
+  const n = p.remote.txs.size;
+  $('#sheetRoot').innerHTML = `<div class="scrim" data-act="close-sheet-bg"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="ckTitle">
+    <div class="sheet-head"><h2 id="ckTitle">Propojení s iCloudem</h2><button class="icon-btn" data-act="close-sheet" aria-label="Zavřít">✕</button></div>
+    <p style="margin:0 0 10px">V iCloudu už jsou data z jiného zařízení (${n} transakcí). V tomto zařízení jich máš ${S.txs.length}. Co s nimi?</p>
+    <div class="stack">
+      <button class="btn primary" data-act="ck-first-cloud">Použít data z iCloudu</button>
+      <p class="help" style="margin:-4px 0 6px">Data v tomto zařízení se nahradí tím, co je v iCloudu. Vhodné, když jsi Penízky na tomhle zařízení jen zkoušel(a).</p>
+      <button class="btn" data-act="ck-first-merge">Sloučit obojí</button>
+      <p class="help" style="margin:-4px 0 0">Transakce z obou míst se spojí. Stejné řádky z bankovního importu se nezdvojí, ručně zapsané se můžou objevit dvakrát. Nastavení se vezme z iCloudu.</p>
+    </div>
+  </div></div>`;
+}
+function ckFinishFirst(keepLocal) {
+  const p = CK.pending, st = ckState();
+  if (!p || !st) return;
+  CK.pending = null;
+  ckAdopt(st, p.remote, keepLocal);
+  st.token = p.token; ckSaveState(st);
+  closeSheet();
+  toast(keepLocal ? 'Data jsou sloučená a synchronizují se přes iCloud.' : 'Používáš data z iCloudu.');
+  ckSync();
+}
+// Wiping data while signed in also removes it from iCloud, so the other devices clear it too.
+// The list of records to delete is saved first, so a wipe made offline still reaches iCloud on the next sync.
+function ckWipeRemote() {
+  const st = ckState();
+  if (!st || !st.user) return;
+  st.wipe = [...new Set([...(st.wipe || []), ...Object.keys(st.shadow), 'settings'])];
+  st.shadow = {}; st.sh = null; ckSaveState(st);
+  if (ckOn()) ckSync();
+}
+async function ckDeleteRemote(st) {
+  const names = st.wipe;
+  for (let i = 0; i < names.length; i += 200) {
+    const batch = CK.db.newRecordsBatch({ zoneID: CK_ZONE, atomic: false });
+    batch.forceDelete(names.slice(i, i + 200).map(recordName => ({ recordName })));
+    const res = await batch.commit();
+    const bad = (res.errors || []).find(e => (e.ckErrorCode || e.serverErrorCode) !== 'NOT_FOUND');
+    if (bad) throw bad;
+  }
+  delete st.wipe; ckSaveState(st);
+}
+function ckCardHtml() {
+  if (!standalone) return '';
+  const st = ckState();
+  let body;
+  if (CK.st === 'signedin') {
+    const at = st && st.at ? new Date(st.at) : null;
+    body = `<p class="help" style="margin:0 0 10px">${CK.busy ? 'Synchronizuji…' : at ? `Naposledy synchronizováno ${dm(at)} v ${pad(at.getHours())}:${pad(at.getMinutes())}.` : 'Připraveno.'} Změny se odesílají samy a z ostatních zařízení se načtou, když aplikaci otevřeš.</p>
+      ${CK.pending ? '<p class="help" style="margin:0 0 10px"><b>Čeká se na tvoje rozhodnutí,</b> jak spojit data v tomto zařízení s iCloudem.</p>' : ''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${CK.pending ? '<button class="btn primary" data-act="ck-first-open">Dokončit propojení</button>' : '<button class="btn" data-act="ck-sync">Synchronizovat teď</button>'}
+        <button class="btn" data-act="ck-signout">Odhlásit z iCloudu</button>
+      </div>`;
+  } else if (CK.st === 'signedout') {
+    body = `<p class="help" style="margin:0 0 10px">Přihlas se stejným Apple ID na Macu, iPhonu i dalších zařízeních a všude uvidíš stejná data. Ukládají se do soukromé části tvého iCloudu, nikdo jiný k nim nemá přístup.</p>
+      <button class="btn primary" data-act="ck-signin">Přihlásit se přes Apple</button>`;
+  } else if (CK.st === 'unavailable') {
+    body = `<p class="help" style="margin:0 0 10px">iCloud teď není dostupný.</p><button class="btn" data-act="ck-retry">Zkusit znovu</button>`;
+  } else body = '<p class="help" style="margin:0">Připojuji se k iCloudu…</p>';
+  const sub = CK.st === 'signedin' ? 'zapnuto' : st && st.user ? 'vypnuto, přihlas se znovu' : 'data na všech tvých zařízeních';
+  return `<section class="card span-12" id="ckCard"><div class="card-head"><h2>Synchronizace přes iCloud</h2><span class="sub">${sub}</span></div>
+    ${body}${CK.err ? `<p class="help" style="margin:10px 0 0;color:var(--crit, #c0392b)">${esc(CK.err)}</p>` : ''}</section>`;
+}
+document.addEventListener('click', e => {
+  const el = e.target.closest && e.target.closest('[data-act^="ck-"]');
+  if (!el) return;
+  switch (el.dataset.act) {
+    case 'ck-signin': ckSignIn(); break;
+    case 'ck-signout': ckSignOut(); break;
+    case 'ck-sync': CK.err = ''; ckSync(); ckRefresh(); break;
+    case 'ck-retry': CK.err = ''; if (CK.container) ckAuth(); else ckLoad(); break;
+    case 'ck-first-open': ckOpenFirst(); break;
+    case 'ck-first-cloud': ckFinishFirst(false); break;
+    case 'ck-first-merge': ckFinishFirst(true); break;
+  }
+});
+if (standalone) {
+  // Sign-in state lives in a cookie CloudKit sets; the library loads at start when sync was on, otherwise when Settings opens.
+  const wanted = () => !!(ckState() && ckState().user);
+  const kick = () => { if (!navigator.onLine) return; if (CK.container) { if (ckOn()) ckSync(); } else if (wanted() || S.view === 'nastaveni') ckLoad(); };
+  window.addEventListener('load', () => { if (navigator.onLine && (wanted() || S.view === 'nastaveni')) ckLoad(); });
+  window.addEventListener('hashchange', () => { if (S.view === 'nastaveni' && !CK.container) ckLoad(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') kick(); else if (ckOn()) ckSync(); });
+  window.addEventListener('online', kick);
+  setInterval(() => { if (ckOn() && document.visibilityState === 'visible' && navigator.onLine) ckSync(); }, 60000);
+}
 
 boot();
 })();
